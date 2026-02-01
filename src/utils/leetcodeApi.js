@@ -158,34 +158,25 @@ export const fetchUserStats = async (username) => {
 
 export const fetchAndUpdateUserStats = async (username) => {
   try {
-    console.log(`Fetching fresh data for ${username}...`);
+    console.log(`Fetching solved count for ${username}...`);
     
-    const [profileRes, solvedRes, badgesRes] = await Promise.all([
-      fetch(`${LEETCODE_API_BASE}/${username}`),
-      fetch(`${LEETCODE_API_BASE}/${username}/solved`),
-      fetch(`${LEETCODE_API_BASE}/${username}/badges`)
-    ]);
+    const solvedRes = await fetch(`${LEETCODE_API_BASE}/${username}/solved`);
 
-    if (!profileRes.ok || !solvedRes.ok || !badgesRes.ok) {
-      throw new Error(`API error: profile=${profileRes.status}, solved=${solvedRes.status}, badges=${badgesRes.status}`);
+    if (!solvedRes.ok) {
+      throw new Error(`API error: solved=${solvedRes.status}`);
     }
 
-    const profile = await profileRes.json();
     const solved = await solvedRes.json();
-    const badges = await badgesRes.json();
 
     const userData = {
       username,
-      name: profile.name || '',
-      solved: solved.solvedProblem || 0,
-      badges: badges.badgesCount || 0,
-      avatar: profile.avatar || ''
+      solved: solved.solvedProblem || 0
     };
 
-    console.log(`✓ Fetched fresh data for ${username}`, userData);
+    console.log(`✓ Fetched solved count for ${username}`, userData);
     return userData;
   } catch (error) {
-    throw new Error(`Failed to fetch stats for ${username}: ${error.message}`);
+    throw new Error(`Failed to fetch solved count for ${username}: ${error.message}`);
   }
 };
 

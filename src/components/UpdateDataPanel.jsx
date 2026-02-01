@@ -2,79 +2,76 @@ import React, { useState } from 'react';
 import { fetchAndUpdateUserStats } from '../utils/leetcodeApi';
 import { updateCachedUserData, getGoogleSheetsConfig, fetchCachedUserData } from '../utils/googleSheets';
 
-export const UpdateDataPanel = ({ usernames = [] }) => {
+export const UpdateDataPanel = ({ users = [] }) => {
   const [updating, setUpdating] = useState(false);
   const [updateProgress, setUpdateProgress] = useState({ completed: 0, total: 0 });
   const [message, setMessage] = useState('');
-  const [selectedUser, setSelectedUser] = useState(usernames[0] || '');
+  const [selectedUser, setSelectedUser] = useState(users[0]?.username || '');
 
-  const getSortedUsernames = async (config) => {
+  const getSortedUsers = async (config) => {
     try {
       const usersWithTimestamps = await Promise.all(
-        usernames.map(async (username) => {
+        users.map(async (user) => {
           try {
-            const data = await fetchCachedUserData(username, config.spreadsheetId, config.apiKey);
+            const data = await fetchCachedUserData(user.username, config.spreadsheetId, config.apiKey);
             return {
-              username,
+              username: user.username,
+              name: user.name,
               lastUpdated: data?.lastUpdated ? new Date(data.lastUpdated).getTime() : 0
             };
           } catch {
-            return { username, lastUpdated: 0 };
+            return { username: user.username, name: user.name, lastUpdated: 0 };
           }
         })
       );
 
       return usersWithTimestamps
-        .sort((a, b) => a.lastUpdated - b.lastUpdated)
-        .map(u => u.username);
+        .sort((a, b) => a.lastUpdated - b.lastUpdated);
     } catch (error) {
       console.error('Error sorting users:', error);
-      return usernames;
+      return users;
     }
   };
 
   const handleUpdateAll = async () => {
-    if (usernames.length === 0) {
+    if (users.length === 0) {
       setMessage('❌ No users to update');
       return;
     }
 
     setUpdating(true);
     setMessage('🔄 Sorting users by oldest update first...');
-    setUpdateProgress({ completed: 0, total: usernames.length });
+    setUpdateProgress({ completed: 0, total: users.length });
 
     try {
       const config = getGoogleSheetsConfig();
       
-      // Get sorted usernames (oldest first)
-      const sortedUsernames = await getSortedUsernames(config);
+      const sortedUsers = await getSortedUsers(config);
       const results = { success: 0, failed: 0, rateLimited: 0 };
 
-      for (let i = 0; i < sortedUsernames.length; i++) {
-        const username = sortedUsernames[i];
+      for (let i = 0; i < sortedUsers.length; i++) {
+        const user = sortedUsers[i];
         try {
-          setMessage(`📊 ${i + 1}/${sortedUsernames.length}: ${username}`);
+          setMessage(`📊 ${i + 1}/${sortedUsers.length}: ${user.name}`);
           
-          // Fetch from LeetCode API
-          const userData = await fetchAndUpdateUserStats(username);
+          const userData = await fetchAndUpdateUserStats(user.username);
+          userData.name = user.name;
           
-          // Update Google Sheet
           await updateCachedUserData(userData, config.spreadsheetId, config.apiKey);
           
           results.success++;
-          setUpdateProgress({ completed: i + 1, total: sortedUsernames.length });
+          setUpdateProgress({ completed: i + 1, total: sortedUsers.length });
         } catch (error) {
           const errorMsg = error.message || '';
           
           if (errorMsg.includes('Too many request') || errorMsg.includes('429')) {
             results.rateLimited++;
             setMessage(`⚠️ Rate limit hit after ${results.success} successful updates.\nFetching remaining data from cached sheet...`);
-            // Show cached data instead of continuing
             break;
           } else {
             results.failed++;
-            console.error(`Failed to update ${username}:`, error);
-            setUpdateProgress({ completed: i + 1, total: sortedUsernames.length });
+            console.error(`Failed to update ${user.username}:`, error);
+            setUpdateProgress({ completed: i + 1, total: sortedUsers.length });
           }
         }
       }
@@ -99,23 +96,22 @@ export const UpdateDataPanel = ({ usernames = [] }) => {
       return;
     }
 
+    const user = users.find(u => u.username === selectedUser);
+
     setUpdating(true);
-    setMessage(`🔄 Updating ${selectedUser}...`);
+    setMessage(`🔄 Updating ${user.name}...`);
 
     try {
       const config = getGoogleSheetsConfig();
 
-      // Fetch from LeetCode API
       const userData = await fetchAndUpdateUserStats(selectedUser);
+      userData.name = user.name;
       
-      // Update Google Sheet
       await updateCachedUserData(userData, config.spreadsheetId, config.apiKey);
       
       setMessage(
-        `✅ Updated ${selectedUser}!\n` +
-        `Name: ${userData.name}\n` +
-        `Solved: ${userData.solved} problems\n` +
-        `Badges: ${userData.badges}`
+        `✅ Updated ${user.name}!\n` +
+        `Solved: ${userData.solved} problems`
       );
     } catch (error) {
       const errorMsg = error.message || '';
@@ -151,7 +147,7 @@ export const UpdateDataPanel = ({ usernames = [] }) => {
       <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
         <button 
           onClick={handleUpdateAll}
-          disabled={updating || usernames.length === 0}
+          disabled={updating || users.length === 0}
           style={{ 
             flex: 1,
             backgroundColor: updating ? '#3a3838' : '#1a1919',
@@ -183,8 +179,8 @@ export const UpdateDataPanel = ({ usernames = [] }) => {
             }}
           >
             <option value="">Select a user...</option>
-            {usernames.map(user => (
-              <option key={user} value={user}>{user}</option>
+            {users.map(user => (
+              <option key={user.username} value={user.username}>{user.name}</option>
             ))}
           </select>
           <button 

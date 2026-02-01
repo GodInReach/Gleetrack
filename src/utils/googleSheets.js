@@ -1,8 +1,8 @@
 const GOOGLE_SHEETS_CONFIG = {
   spreadsheetId: '1BLVo07yZpJbxiX68q8JirUUa6zjfrvljJPIYfIKDO1k',
   apiKey: 'AIzaSyDi-wDBNC6fskWYjVaZZws6Yv8ggVfAYFM',
-  usernamesRange: 'Usernames!A:A',
-  dataRange: 'CachedData!A:F'
+  usernamesRange: 'Usernames!A:B',
+  dataRange: 'CachedData!A:D'
 };
 
 const CACHE_DURATION = 5 * 60 * 1000;
@@ -11,7 +11,7 @@ let cacheTimestamp = 0;
 let cachedData = null;
 let cachedDataTimestamp = 0;
 
-export const fetchUsernamesFromSheet = async (spreadsheetId, apiKey, range = 'Usernames!A:A') => {
+export const fetchUsernamesFromSheet = async (spreadsheetId, apiKey, range = 'Usernames!A:B') => {
   try {
     if (cachedUsernames && (Date.now() - cacheTimestamp) < CACHE_DURATION) {
       console.log('Using cached usernames');
@@ -19,15 +19,25 @@ export const fetchUsernamesFromSheet = async (spreadsheetId, apiKey, range = 'Us
     }
 
     const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}?key=${apiKey}`;
+    console.log('Fetching usernames from:', url.replace(apiKey, '***'));
     const response = await fetch(url);
     
-    if (!response.ok) throw new Error('Failed to fetch from Google Sheets');
+    if (!response.ok) {
+      const errorData = await response.text();
+      console.error('Google Sheets API error:', response.status, errorData);
+      throw new Error(`Google Sheets API error: ${response.status} - ${errorData}`);
+    }
     
     const data = await response.json();
-    const usernames = data.values
-      ?.flat()
-      ?.filter(val => val && val.trim() && val.trim() !== 'username')
-      ?.map(val => val.trim());
+    const rows = data.values || [];
+    
+    const usernames = rows
+      .slice(1)
+      .filter(row => row[0] && row[0].trim() && row[0].trim() !== 'username')
+      .map(row => ({
+        username: row[0].trim(),
+        name: row[1]?.trim() || row[0].trim()
+      }));
     
     cachedUsernames = usernames || [];
     cacheTimestamp = Date.now();
@@ -40,13 +50,28 @@ export const fetchUsernamesFromSheet = async (spreadsheetId, apiKey, range = 'Us
 
 export const fetchCachedUserData = async (username, spreadsheetId, apiKey) => {
   try {
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/CachedData!A:F?key=${apiKey}`;
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/CachedData!A:D?key=${apiKey}`;
+    console.log('Fetching cached data from:', url.replace(apiKey, '***'));
     const response = await fetch(url);
     
-    if (!response.ok) throw new Error('Failed to fetch cached data');
+    if (!response.ok) {
+      const errorData = await response.text();
+      console.error('Google Sheets API error:', response.status, errorData);
+      
+      if (response.status === 403) {
+        throw new Error('API key does not have permission to access this spreadsheet. Check that the spreadsheet is shared or the API key has proper permissions.');
+      }
+      if (response.status === 404) {
+        throw new Error('Spreadsheet or sheet "CachedData" not found. Make sure you have a sheet named "CachedData" with columns: username, name, solved, lastUpdated');
+      }
+      
+      throw new Error(`Google Sheets API error: ${response.status}`);
+    }
     
     const data = await response.json();
     const rows = data.values || [];
+    
+    console.log(`CachedData sheet rows:`, rows);
     
     for (let i = 1; i < rows.length; i++) {
       if (rows[i][0]?.toLowerCase() === username.toLowerCase()) {
@@ -54,15 +79,14 @@ export const fetchCachedUserData = async (username, spreadsheetId, apiKey) => {
           username: rows[i][0],
           name: rows[i][1],
           solved: rows[i][2],
-          badges: rows[i][3],
-          avatar: rows[i][4],
-          lastUpdated: rows[i][5]
+          lastUpdated: rows[i][3]
         };
       }
     }
     
     return null;
   } catch (error) {
+    console.error(`Error fetching cached data for ${username}:`, error);
     throw new Error(`Failed to fetch cached data: ${error.message}`);
   }
 };
@@ -71,7 +95,7 @@ export const updateCachedUserData = async (userData, spreadsheetId, apiKey) => {
   try {
     console.log(`Updating cached data for ${userData.username}...`);
     
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/CachedData!A:F?key=${apiKey}`;
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/CachedData!A:D?key=${apiKey}`;
     const response = await fetch(url);
     
     if (!response.ok) throw new Error('Failed to fetch existing data');
@@ -88,8 +112,8 @@ export const updateCachedUserData = async (userData, spreadsheetId, apiKey) => {
     }
 
     const range = rowIndex >= 0 
-      ? `CachedData!A${rowIndex + 1}:F${rowIndex + 1}`
-      : `CachedData!A:F`;
+      ? `CachedData!A${rowIndex + 1}:D${rowIndex + 1}`
+      : `CachedData!A:D`;
 
     const method = rowIndex >= 0 ? 'PUT' : 'POST';
     const endpoint = rowIndex >= 0 
@@ -104,10 +128,8 @@ export const updateCachedUserData = async (userData, spreadsheetId, apiKey) => {
       body: JSON.stringify({
         values: [[
           userData.username,
-          userData.name || '',
+          userData.name || userData.username,
           userData.solved || 0,
-          userData.badges || 0,
-          userData.avatar || '',
           new Date().toISOString()
         ]]
       })

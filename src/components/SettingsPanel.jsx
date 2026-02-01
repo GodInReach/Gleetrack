@@ -6,6 +6,7 @@ export const SettingsPanel = ({ onSheetsConfigured }) => {
   const [spreadsheetId, setSpreadsheetId] = useState(config?.spreadsheetId || '');
   const [apiKey, setApiKey] = useState(config?.apiKey || '');
   const [saveMessage, setSaveMessage] = useState('');
+  const [testLoading, setTestLoading] = useState(false);
 
   const handleSave = () => {
     if (spreadsheetId.trim() && apiKey.trim()) {
@@ -15,6 +16,34 @@ export const SettingsPanel = ({ onSheetsConfigured }) => {
       setTimeout(() => setSaveMessage(''), 3000);
     } else {
       setSaveMessage('Please fill in all fields');
+    }
+  };
+
+  const handleTestApi = async () => {
+    if (!spreadsheetId.trim() || !apiKey.trim()) {
+      setSaveMessage('❌ Please fill in all fields first');
+      return;
+    }
+
+    setTestLoading(true);
+    try {
+      const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?key=${apiKey}`;
+      const response = await fetch(url);
+      
+      if (response.ok) {
+        const data = await response.json();
+        setSaveMessage(`✓ API key works! Spreadsheet: "${data.properties.title}"`);
+      } else if (response.status === 403) {
+        setSaveMessage('❌ 403 Error: API key does not have permission. Make sure you enabled Google Sheets API and the spreadsheet is accessible.');
+      } else if (response.status === 404) {
+        setSaveMessage('❌ 404 Error: Spreadsheet not found. Check your Spreadsheet ID.');
+      } else {
+        setSaveMessage(`❌ Error: ${response.status}`);
+      }
+    } catch (error) {
+      setSaveMessage(`❌ Error: ${error.message}`);
+    } finally {
+      setTestLoading(false);
     }
   };
 
@@ -84,13 +113,29 @@ export const SettingsPanel = ({ onSheetsConfigured }) => {
           Save Settings
         </button>
 
+        <button 
+          onClick={handleTestApi} 
+          disabled={testLoading}
+          style={{ 
+            padding: '12px', 
+            marginTop: '5px',
+            background: '#4a7c59',
+            cursor: testLoading ? 'not-allowed' : 'pointer'
+          }}
+        >
+          {testLoading ? '🔄 Testing...' : '🧪 Test API Key'}
+        </button>
+
         {saveMessage && (
           <div style={{
             color: saveMessage.includes('✓') ? '#6fb369' : '#ff6b6b',
             padding: '12px',
             backgroundColor: saveMessage.includes('✓') ? 'rgba(111, 179, 105, 0.1)' : 'rgba(255, 107, 107, 0.1)',
             borderRadius: '8px',
-            textAlign: 'center'
+            textAlign: 'center',
+            fontSize: '0.9em',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word'
           }}>
             {saveMessage}
           </div>

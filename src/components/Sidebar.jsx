@@ -4,7 +4,6 @@ export const Sidebar = ({ activeView, setActiveView }) => {
   const views = [
     { id: 'dashboard', icon: '📊', label: 'Dashboard' },
     { id: 'update', icon: '🚀', label: 'Update Cache' },
-    { id: 'settings', icon: '⚙️', label: 'Settings' },
   ];
 
   return (
