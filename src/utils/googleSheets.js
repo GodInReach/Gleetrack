@@ -1,4 +1,4 @@
-import { SignJWT } from 'jose';
+import { SignJWT, importPKCS8 } from 'jose';
 
 const GOOGLE_SHEETS_CONFIG = {
   spreadsheetId: import.meta.env.VITE_GOOGLE_SHEETS_ID || '',
@@ -36,8 +36,9 @@ const getAccessToken = async () => {
 
   try {
     const serviceAccount = parseServiceAccount();
-    const encoder = new TextEncoder();
-    const keyData = serviceAccount.private_key;
+    
+    // Import the private key using jose
+    const privateKey = await importPKCS8(serviceAccount.private_key, 'RS256');
     
     const jwt = await new SignJWT({
       iss: serviceAccount.client_email,
@@ -47,13 +48,7 @@ const getAccessToken = async () => {
       iat: Math.floor(Date.now() / 1000)
     })
       .setProtectedHeader({ alg: 'RS256' })
-      .sign(await crypto.subtle.importKey(
-        'pkcs8',
-        new TextEncoder().encode(keyData),
-        { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
-        false,
-        ['sign']
-      ));
+      .sign(privateKey);
 
     const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
