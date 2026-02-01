@@ -1,6 +1,6 @@
 const GOOGLE_SHEETS_CONFIG = {
-  spreadsheetId: '1BLVo07yZpJbxiX68q8JirUUa6zjfrvljJPIYfIKDO1k',
-  apiKey: 'AIzaSyDi-wDBNC6fskWYjVaZZws6Yv8ggVfAYFM',
+  spreadsheetId: import.meta.env.VITE_GOOGLE_SHEETS_ID || '',
+  apiKey: import.meta.env.VITE_GOOGLE_API_KEY || '',
   usernamesRange: 'Usernames!A:B',
   dataRange: 'CachedData!A:D'
 };
@@ -13,6 +13,10 @@ let cachedDataTimestamp = 0;
 
 export const fetchUsernamesFromSheet = async (spreadsheetId, apiKey, range = 'Usernames!A:B') => {
   try {
+    if (!spreadsheetId || !apiKey) {
+      throw new Error('Missing Google Sheets credentials. Set VITE_GOOGLE_SHEETS_ID and VITE_GOOGLE_API_KEY in your .env file.');
+    }
+
     if (cachedUsernames && (Date.now() - cacheTimestamp) < CACHE_DURATION) {
       console.log('Using cached usernames');
       return cachedUsernames;
