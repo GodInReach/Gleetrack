@@ -1,6 +1,9 @@
+import { SignJWT } from 'jose';
+
 const GOOGLE_SHEETS_CONFIG = {
   spreadsheetId: import.meta.env.VITE_GOOGLE_SHEETS_ID || '',
   apiKey: import.meta.env.VITE_GOOGLE_API_KEY || '',
+  serviceAccountB64: import.meta.env.VITE_GOOGLE_SERVICE_ACCOUNT || '',
   usernamesRange: 'Usernames!A:B',
   dataRange: 'CachedData!A:D'
 };
@@ -10,6 +13,69 @@ let cachedUsernames = null;
 let cacheTimestamp = 0;
 let cachedData = null;
 let cachedDataTimestamp = 0;
+let accessTokenCache = null;
+let tokenExpireTime = 0;
+
+const parseServiceAccount = () => {
+  if (!GOOGLE_SHEETS_CONFIG.serviceAccountB64) {
+    throw new Error('VITE_GOOGLE_SERVICE_ACCOUNT not configured');
+  }
+  try {
+    const decoded = atob(GOOGLE_SHEETS_CONFIG.serviceAccountB64);
+    return JSON.parse(decoded);
+  } catch (error) {
+    throw new Error(`Failed to parse service account: ${error.message}`);
+  }
+};
+
+const getAccessToken = async () => {
+  if (accessTokenCache && Date.now() < tokenExpireTime) {
+    console.log('Using cached access token');
+    return accessTokenCache;
+  }
+
+  try {
+    const serviceAccount = parseServiceAccount();
+    const encoder = new TextEncoder();
+    const keyData = serviceAccount.private_key;
+    
+    const jwt = await new SignJWT({
+      iss: serviceAccount.client_email,
+      scope: 'https://www.googleapis.com/auth/spreadsheets',
+      aud: 'https://oauth2.googleapis.com/token',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      iat: Math.floor(Date.now() / 1000)
+    })
+      .setProtectedHeader({ alg: 'RS256' })
+      .sign(await crypto.subtle.importKey(
+        'pkcs8',
+        new TextEncoder().encode(keyData),
+        { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+        false,
+        ['sign']
+      ));
+
+    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${jwt}`
+    });
+
+    if (!tokenResponse.ok) {
+      const error = await tokenResponse.json();
+      throw new Error(`Failed to get access token: ${error.error_description}`);
+    }
+
+    const tokenData = await tokenResponse.json();
+    accessTokenCache = tokenData.access_token;
+    tokenExpireTime = Date.now() + (tokenData.expires_in * 1000) - 60000;
+    
+    console.log('✓ Generated new access token');
+    return accessTokenCache;
+  } catch (error) {
+    throw new Error(`Token generation failed: ${error.message}`);
+  }
+};
 
 export const fetchUsernamesFromSheet = async (spreadsheetId, apiKey, range = 'Usernames!A:B') => {
   try {
@@ -99,8 +165,12 @@ export const updateCachedUserData = async (userData, spreadsheetId, apiKey) => {
   try {
     console.log(`Updating cached data for ${userData.username}...`);
     
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/CachedData!A:D?key=${apiKey}`;
-    const response = await fetch(url);
+    const accessToken = await getAccessToken();
+    
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/CachedData!A:D`;
+    const response = await fetch(url, {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
+    });
     
     if (!response.ok) throw new Error('Failed to fetch existing data');
     
@@ -121,14 +191,17 @@ export const updateCachedUserData = async (userData, spreadsheetId, apiKey) => {
 
     const method = rowIndex >= 0 ? 'PUT' : 'POST';
     const endpoint = rowIndex >= 0 
-      ? `/values/${range.replace(/!/g, '%21')}?key=${apiKey}` 
-      : `/values:append?valueInputOption=USER_ENTERED&key=${apiKey}`;
+      ? `/values/${range.replace(/!/g, '%21')}` 
+      : `/values:append?valueInputOption=USER_ENTERED`;
     
     const updateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}${endpoint}`;
     
     const updateResponse = await fetch(updateUrl, {
       method,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`
+      },
       body: JSON.stringify({
         values: [[
           userData.username,
@@ -192,4 +265,6 @@ export const clearCache = () => {
   cacheTimestamp = 0;
   cachedData = null;
   cachedDataTimestamp = 0;
+  accessTokenCache = null;
+  tokenExpireTime = 0;
 };
