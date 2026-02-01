@@ -121,10 +121,10 @@ export const updateCachedUserData = async (userData, spreadsheetId, apiKey) => {
 
     const method = rowIndex >= 0 ? 'PUT' : 'POST';
     const endpoint = rowIndex >= 0 
-      ? `/values/${range.replace(/!/g, '%21')}` 
-      : `/values:append?valueInputOption=USER_ENTERED`;
+      ? `/values/${range.replace(/!/g, '%21')}?key=${apiKey}` 
+      : `/values:append?valueInputOption=USER_ENTERED&key=${apiKey}`;
     
-    const updateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}${endpoint}&key=${apiKey}`;
+    const updateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}${endpoint}`;
     
     const updateResponse = await fetch(updateUrl, {
       method,
@@ -140,6 +140,8 @@ export const updateCachedUserData = async (userData, spreadsheetId, apiKey) => {
     });
 
     if (!updateResponse.ok) {
+      const errorData = await updateResponse.text();
+      console.error('Update response error:', errorData);
       throw new Error(`Failed to update sheet: ${updateResponse.status}`);
     }
 
